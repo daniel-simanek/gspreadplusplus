@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name='gspreadplus',
+    name='gspreadplusplus',
     version='1.0.0',
     author='Daniel Simanek',
     author_email='daniel.simanek@decathlon.com',

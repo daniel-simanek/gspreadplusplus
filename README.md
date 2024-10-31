@@ -1,4 +1,4 @@
-# gspreadplus
+# gspreadplusplus
 
 A Python library for utilities related to gspread.
 
@@ -7,4 +7,4 @@ A Python library for utilities related to gspread.
 You can install the package using pip:
 
 ```bash
-pip install gspreadplus
+pip install gspreadplusplus
