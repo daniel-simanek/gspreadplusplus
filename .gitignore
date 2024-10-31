@@ -1,0 +1,4 @@
+pypi-token
+build/
+dist/
+gspreadplus.egg-info/
