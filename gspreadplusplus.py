@@ -2,7 +2,7 @@ import gspread
 from gspread import service_account_from_dict
 
 
-class GspreadPlusPlus:
+class GPP:
 
     @staticmethod
     def clear_sheet_except_header(sheet_id, sheet_name, creds_json):
@@ -40,7 +40,7 @@ class GspreadPlusPlus:
             creds_json (dict): A dictionary containing the service account credentials.
         """
         # Clear the existing data in the sheet while keeping the header
-        clear_sheet_except_header(sheet_id, sheet_name, creds_json)
+        GPP.clear_sheet_except_header(sheet_id, sheet_name, creds_json)
 
         # Authorize the client using the credentials dictionary
         client = service_account_from_dict(creds_json)
@@ -56,3 +56,8 @@ class GspreadPlusPlus:
             # Append the data starting from the second row (row 2 in the sheet)
             sheet.update('A2', pandas_df.values.tolist())  # Update starting from cell A2
             
+    @staticmethod
+    def debug(text="This is debug"):
+        print(text)
+
+

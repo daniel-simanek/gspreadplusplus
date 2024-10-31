@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='gspreadplusplus',
-    version='1.0.2',
+    version='1.0.3',
     author='Daniel Simanek',
     author_email='daniel.simanek@decathlon.com',
     description='Advanced functions using the gspread library, used for making the code less bloated.',
