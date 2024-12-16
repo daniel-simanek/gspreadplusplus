@@ -10,6 +10,7 @@ A Python library that enhances Google Sheets operations with additional function
 - Selective column clearing options
 - Automatic date formatting
 - Sheet dimension management
+- Configuration management with key-value storage
 
 ## Installation
 
@@ -54,7 +55,7 @@ GPP.df_to_sheets(
 )
 ```
 
-### Advanced Options
+### Advanced DataFrame Export Options
 
 ```python
 GPP.df_to_sheets(
@@ -68,7 +69,35 @@ GPP.df_to_sheets(
 )
 ```
 
+### Configuration Management
+
+The library provides functionality to store and update configuration values in a Google Sheet. By default, it uses a sheet named "CONFIG" with keys in column A and values in column B.
+
+```python
+# Store or update a configuration value
+result = GPP.set_config(
+    spreadsheet_id="your_spreadsheet_id",
+    key="api_endpoint",
+    value="https://api.example.com",
+    creds_json=creds_json,
+    sheet_name="CONFIG"  # Optional, defaults to "CONFIG"
+)
+
+if result == 0:
+    print("Configuration updated successfully")
+else:
+    print("Error updating configuration")
+```
+
+The `set_config` function will:
+- Search for the key in column A
+- If found, update the corresponding value in column B
+- If not found, append a new row with the key-value pair
+- Return 0 on success, 1 on error
+
 ## Data Type Support
+
+The library automatically handles conversion of various data types:
 
 - Strings
 - Integers (regular, long, bigint)
@@ -78,6 +107,21 @@ GPP.df_to_sheets(
 - Timestamps
 - Booleans
 
+Null values are converted to:
+- 0 for numeric types
+- Empty string for other types
+
+## Error Handling
+
+The library implements comprehensive error handling:
+- Returns status codes for operations (0 for success, 1 for failure)
+- Prints detailed error messages for debugging
+- Gracefully handles missing keys, sheet access issues, and credential problems
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

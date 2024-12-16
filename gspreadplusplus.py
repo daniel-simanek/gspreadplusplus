@@ -147,5 +147,44 @@ class GPP:
         worksheet.resize(rows=max(required_rows, 1))
 
     @staticmethod
+    def set_config(spreadsheet_id: str, key: str, value: str, creds_json: Dict, sheet_name: str = "CONFIG") -> int:
+        """
+        Find a key in column A of the specified sheet and update its corresponding value in column B.
+
+        Args:
+            spreadsheet_id: The ID of the Google Spreadsheet
+            key: The key to search for in column A
+            value: The value to set in column B
+            creds_json: Dictionary containing Google service account credentials
+            sheet_name: Name of the worksheet (defaults to "CONFIG")
+
+        Returns:
+            int: 0 if successful, 1 if an error occurs
+        """
+        try:
+            # Initialize the client and get the worksheet
+            client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json)
+
+            # Get all values from column A
+            keys = worksheet.col_values(1)  # Column A
+
+            # Find the row number for the key
+            try:
+                row_num = keys.index(key) + 1  # Adding 1 because sheets are 1-indexed
+            except ValueError:
+                # Key not found, append new row
+                row_num = len(keys) + 1
+                worksheet.update(f'A{row_num}', [[key]])
+
+            # Update the value in column B
+            worksheet.update(f'B{row_num}', [[value]])
+
+            return 0
+
+        except Exception as e:
+            print(f"Error in set_config: {str(e)}")
+            return 1
+
+    @staticmethod
     def debug(text="This is debug"):
         print(text)
