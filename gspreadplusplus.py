@@ -8,10 +8,20 @@ class GPP:
     """Gspread Plus Plus (GPP) class for enhanced Google Sheets operations."""
 
     @staticmethod
-    def _init_sheets_client(spreadsheet_id: str, sheet_name: str, creds_json: Dict) -> Tuple[Any, Any]:
+    def _init_sheets_client(spreadsheet_id: str, sheet_name: str, creds_json: Dict, create_sheet: bool = True) -> Tuple[
+        Any, Any]:
         """Initialize Google Sheets client and get worksheet."""
         client = service_account_from_dict(creds_json)
-        worksheet = client.open_by_key(spreadsheet_id).worksheet(sheet_name)
+        spreadsheet = client.open_by_key(spreadsheet_id)
+
+        try:
+            worksheet = spreadsheet.worksheet(sheet_name)
+        except Exception as e:
+            if create_sheet:
+                worksheet = spreadsheet.add_worksheet(sheet_name, 1, 1)  # Default size: 1000 rows, 26 columns
+            else:
+                raise ValueError(f"Sheet '{sheet_name}' does not exist and create_sheet is False") from e
+
         return client, worksheet
 
     @staticmethod
@@ -113,7 +123,8 @@ class GPP:
             creds_json: Dict,
             english_locale: bool = False,
             keep_header: bool = False,
-            erase_whole: bool = True
+            erase_whole: bool = True,
+            create_sheet: bool = True
     ) -> None:
         """
         Transfer data from Spark DataFrame to Google Sheets while preserving column structure.
@@ -126,8 +137,9 @@ class GPP:
             english_locale: If True, use '.' as decimal separator, if False use ','
             keep_header: If True, preserve the first row of the sheet
             erase_whole: If True, clear all columns and rows (maybe skipping first based on keep_header)
+            create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
         """
-        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json)
+        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
         converted_data, date_columns, header = GPP._prepare_data(df, keep_header)
 
         current_rows = len(worksheet.col_values(1))
