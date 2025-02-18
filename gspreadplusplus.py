@@ -269,33 +269,34 @@ class GPP:
         # Convert DataFrame to lists with proper type conversion
         converted_data, date_columns, header = GPP._prepare_data(df, keep_header=True)
 
-        if not keep_header:
-            # If not keeping header, clear the first row and update with new header
-            worksheet.batch_clear(["A1:Z1"])  # Clear first row
-            worksheet.update('A1', [header])
-            start_row = 2
-        else:
-            # If keeping header, verify column count matches
-            existing_header = worksheet.row_values(1)
-            if len(existing_header) != len(header):
-                raise ValueError(
-                    f"DataFrame columns ({len(header)}) don't match sheet columns ({len(existing_header)})"
-                )
-            start_row = current_rows + 1
+        # Get current sheet properties
+        existing_header = worksheet.row_values(1)
+        current_col_count = len(existing_header) if existing_header else 0
+        required_cols = len(header)
+
+        # Add columns if needed
+        if required_cols > current_col_count:
+            worksheet.resize(cols=required_cols)
+
+        # Calculate start row for new data (always after existing data)
+        start_row = current_rows + 1
 
         # Calculate required space
         data_rows = len(converted_data)
         required_rows = current_rows + data_rows
-        required_cols = len(header)
 
         # Add rows if needed
         if worksheet.row_count < required_rows:
             worksheet.add_rows(required_rows - worksheet.row_count)
 
-        # Update the data
+        # Update the data first
         end_col = chr(64 + required_cols)
         update_range = f'A{start_row}:{end_col}{required_rows}'
         worksheet.update(update_range, converted_data, value_input_option='USER_ENTERED')
+
+        # If not keeping header, update it after appending data
+        if not keep_header:
+            worksheet.update('A1', [header], value_input_option='USER_ENTERED')
 
         # Format date columns
         GPP._format_date_columns(
