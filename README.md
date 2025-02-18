@@ -5,6 +5,7 @@ A Python library that enhances Google Sheets operations with additional function
 ## Features
 
 - Transfer Spark DataFrames to Google Sheets with proper type conversion
+- Append data to existing sheets while maintaining structure
 - Intelligent handling of various data types (numbers, dates, timestamps, etc.)
 - Preserve or update sheet headers
 - Selective column clearing options
@@ -58,14 +59,25 @@ GPP.df_to_sheets(
 ### Advanced DataFrame Export Options
 
 ```python
+# Export with custom options
 GPP.df_to_sheets(
     df=df,
     spreadsheet_id="your_spreadsheet_id",
     sheet_name="Sheet1",
     creds_json=creds_json,
-    english_locale=True,  # Use '.' as decimal separator
     keep_header=True,     # Preserve existing header row
-    erase_whole=False     # Clear only necessary columns
+    erase_whole=False,    # Clear only necessary columns
+    create_sheet=True     # Create sheet if it doesn't exist
+)
+
+# Append data to existing sheet
+GPP.df_append_to_sheets(
+    df=df,
+    spreadsheet_id="your_spreadsheet_id",
+    sheet_name="Sheet1",
+    creds_json=creds_json,
+    keep_header=True,     # Keep existing header
+    create_sheet=True     # Create sheet if it doesn't exist
 )
 ```
 
@@ -89,11 +101,44 @@ else:
     print("Error updating configuration")
 ```
 
-The `set_config` function will:
-- Search for the key in column A
-- If found, update the corresponding value in column B
-- If not found, append a new row with the key-value pair
-- Return 0 on success, 1 on error
+## Method Reference
+
+### df_to_sheets
+Exports a Spark DataFrame to Google Sheets, optionally preserving existing headers.
+
+Parameters:
+- `df`: Spark DataFrame containing the data to transfer
+- `spreadsheet_id`: The ID of the Google Spreadsheet
+- `sheet_name`: Name of the worksheet to update
+- `creds_json`: Dictionary containing Google service account credentials
+- `keep_header`: If True, preserve the first row of the sheet (default: False)
+- `erase_whole`: If True, clear all columns and rows (default: True)
+- `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+
+### df_append_to_sheets
+Appends data from a Spark DataFrame to an existing Google Sheet.
+
+Parameters:
+- `df`: Spark DataFrame containing the data to append
+- `spreadsheet_id`: The ID of the Google Spreadsheet
+- `sheet_name`: Name of the worksheet to update
+- `creds_json`: Dictionary containing Google service account credentials
+- `keep_header`: If True, preserve existing header (default: False)
+- `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+
+### set_config
+Stores or updates configuration values in a designated sheet.
+
+Parameters:
+- `spreadsheet_id`: The ID of the Google Spreadsheet
+- `key`: The key to store/update
+- `value`: The value to set
+- `creds_json`: Dictionary containing Google service account credentials
+- `sheet_name`: Name of the configuration worksheet (default: "CONFIG")
+
+Returns:
+- 0 on success
+- 1 on error
 
 ## Data Type Support
 
@@ -117,6 +162,7 @@ The library implements comprehensive error handling:
 - Returns status codes for operations (0 for success, 1 for failure)
 - Prints detailed error messages for debugging
 - Gracefully handles missing keys, sheet access issues, and credential problems
+- Validates column count when appending with preserved headers
 
 ## Contributing
 
