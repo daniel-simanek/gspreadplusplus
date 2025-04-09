@@ -4,5 +4,5 @@ from .core import GPP
 import sys
 sys.modules['gspreadplusplus'] = sys.modules[__name__]
 
-__version__ = '4.0.1'
+__version__ = '4.0.2dev1'
 __all__ = ['GPP']

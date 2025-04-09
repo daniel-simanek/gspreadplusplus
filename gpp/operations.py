@@ -99,12 +99,25 @@ def apply_update_operations(config: Dict, worksheet: Any) -> int:
 
             col_idx = header.index(column)
 
+            # Try to convert values to same type for comparison
+            # This helps handle comparisons between strings, ints, floats, etc.
+            def safe_compare(a, b, op):
+                # Try to convert both to numbers if possible
+                try:
+                    a_num = float(a)
+                    b_num = float(b)
+                    return op(a_num, b_num)
+                except (ValueError, TypeError):
+                    # If conversion fails, treat as strings
+                    return op(str(a), str(b))
             if inclusive:
-                data_rows = [row for row in data_rows
-                             if row[col_idx] < start_value or row[col_idx] > end_value]
+                data_rows = [row for row in data_rows if
+                             safe_compare(row[col_idx], start_value, lambda x, y: x < y) or
+                             safe_compare(row[col_idx], end_value, lambda x, y: x > y)]
             else:
-                data_rows = [row for row in data_rows
-                             if row[col_idx] <= start_value or row[col_idx] >= end_value]
+                data_rows = [row for row in data_rows if
+                             safe_compare(row[col_idx], start_value, lambda x, y: x <= y) or
+                             safe_compare(row[col_idx], end_value, lambda x, y: x >= y)]
 
         elif op_type == "delete_where":
             # Delete rows where a condition is met
@@ -118,21 +131,21 @@ def apply_update_operations(config: Dict, worksheet: Any) -> int:
             col_idx = header.index(column)
 
             # Define comparison operators
-            operators = {
-                "eq": lambda x, y: x == y,
-                "ne": lambda x, y: x != y,
-                "gt": lambda x, y: x > y,
-                "lt": lambda x, y: x < y,
-                "ge": lambda x, y: x >= y,
-                "le": lambda x, y: x <= y
+            comparison_ops = {
+                "eq": lambda x, y: safe_compare(x, y, lambda a, b: a == b),
+                "ne": lambda x, y: safe_compare(x, y, lambda a, b: a != b),
+                "gt": lambda x, y: safe_compare(x, y, lambda a, b: a > b),
+                "lt": lambda x, y: safe_compare(x, y, lambda a, b: a < b),
+                "ge": lambda x, y: safe_compare(x, y, lambda a, b: a >= b),
+                "le": lambda x, y: safe_compare(x, y, lambda a, b: a <= b)
             }
 
-            if operator not in operators:
+            if operator not in comparison_ops:
                 raise ValueError(f"Unknown operator: {operator}")
 
             # Filter rows that don't match the condition
             data_rows = [row for row in data_rows
-                         if not operators[operator](row[col_idx], value)]
+                         if not comparison_ops[operator](row[col_idx], value)]
 
         else:
             raise ValueError(f"Unknown operation type: {op_type}")
