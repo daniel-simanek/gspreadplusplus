@@ -2,6 +2,8 @@ from pyspark.sql import DataFrame
 from datetime import datetime, time
 from gspread import service_account_from_dict
 from typing import List, Any, Dict, Tuple
+from .utils import convert_value, prepare_data
+from .operations import apply_update_operations, process_update_config
 
 
 class GPP:
@@ -43,84 +45,6 @@ class GPP:
                 raise ValueError(f"Sheet '{sheet_name}' does not exist and create_sheet is False") from e
 
         return client, worksheet
-
-    @staticmethod
-    def _convert_value(value: Any, dtype: str) -> Any:
-        """
-        Convert Spark SQL types to appropriate Python types for Google Sheets.
-
-        Args:
-            value: The value to convert
-            dtype: The Spark SQL data type name (case-insensitive)
-
-        Returns:
-            Converted value suitable for Google Sheets
-
-        Raises:
-            ValueError: If dtype is not supported
-        """
-        dtype = dtype.lower()
-
-        if value is None:
-            # Convert nulls to appropriate default values based on type
-            return 0 if dtype in ["bigint", "long", "double", "decimal", "float"] else ""
-
-        # Map of data types to conversion functions
-        type_handlers = {
-            "string": lambda x: str(x),
-            "bigint": lambda x: int(x),
-            "long": lambda x: int(x),
-            "integer": lambda x: int(x),
-            "int": lambda x: int(x),
-            "tinyint": lambda x: int(x),
-            "smallint": lambda x: int(x),
-            "short": lambda x: int(x),
-            "double": lambda x: round(float(x), 2),
-            "float": lambda x: round(float(x), 2),
-            "decimal": lambda x: round(float(x), 2),
-            "timestamp": lambda x: x.isoformat(),
-            "date": lambda x: datetime.combine(x, time.min).isoformat(),
-            "boolean": lambda x: bool(x)
-        }
-
-        if dtype not in type_handlers:
-            raise ValueError(f"Unsupported data type: {dtype}")
-
-        return type_handlers[dtype](value)
-
-    @staticmethod
-    def _prepare_data(df: DataFrame, keep_header: bool) -> Tuple[List[List[Any]], List[int], List[str]]:
-        """
-        Convert DataFrame to list of lists with proper type conversion.
-
-        Args:
-            df: Spark DataFrame to convert
-            keep_header: If True, exclude header from converted data
-
-        Returns:
-            Tuple containing:
-            - List of lists with converted data
-            - List of column indices containing dates
-            - List of column headers
-        """
-        # Identify date columns for formatting
-        date_columns = [i for i, field in enumerate(df.schema)
-                        if field.dataType.typeName().lower() == "date"]
-
-        data = df.collect()
-        header = df.columns
-
-        # Include header in converted data only if not keeping existing header
-        converted_data = [] if keep_header else [header]
-
-        for row in data:
-            converted_row = [
-                GPP._convert_value(value, df.schema[i].dataType.typeName())
-                for i, value in enumerate(row)
-            ]
-            converted_data.append(converted_row)
-
-        return converted_data, date_columns, header
 
     @staticmethod
     def _clear_sheet_data(worksheet: Any, current_rows: int, required_cols: int,
@@ -209,8 +133,10 @@ class GPP:
             erase_whole: If True, clear all columns and rows (maybe skipping first based on keep_header)
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
         """
+        from .utils import prepare_data
+
         client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
-        converted_data, date_columns, header = GPP._prepare_data(df, keep_header)
+        converted_data, date_columns, header = prepare_data(df, keep_header)
 
         current_rows = len(worksheet.col_values(1))
         required_rows = len(converted_data) + (1 if keep_header else 0)
@@ -248,6 +174,8 @@ class GPP:
             keep_header: If True, preserve existing header. If False, use DataFrame's header
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
         """
+        from .utils import prepare_data
+
         # Initialize client and worksheet
         client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
 
@@ -267,7 +195,7 @@ class GPP:
             return
 
         # Convert DataFrame to lists with proper type conversion
-        converted_data, date_columns, header = GPP._prepare_data(df, keep_header=True)
+        converted_data, date_columns, header = prepare_data(df, keep_header=True)
 
         # Get current sheet properties
         existing_header = worksheet.row_values(1)
@@ -297,6 +225,98 @@ class GPP:
         # If not keeping header, update it after appending data
         if not keep_header:
             worksheet.update('A1', [header], value_input_option='USER_ENTERED')
+
+        # Format date columns
+        GPP._format_date_columns(
+            client,
+            worksheet,
+            date_columns,
+            start_row,
+            required_rows
+        )
+
+    @staticmethod
+    def df_overlap_to_sheets(
+            df: DataFrame,
+            spreadsheet_id: str,
+            sheet_name: str,
+            creds_json: Dict,
+            update_config: Dict,
+            keep_header: bool = True,
+            create_sheet: bool = True
+    ) -> None:
+        """
+        Update sheet with selective deletion and appending based on configuration.
+
+        Args:
+            df: Spark DataFrame containing the data to append
+            spreadsheet_id: The ID of the Google Spreadsheet
+            sheet_name: Name of the worksheet to update
+            creds_json: Dictionary containing Google service account credentials
+            update_config: Configuration for update operations
+                Format: {
+                    "operations": [
+                        {"type": "sort", "column": "A", "direction": "asc"},
+                        {"type": "delete_from", "column": "A", "value": "2025-02-01", "inclusive": True},
+                        # Other supported operations:
+                        # {"type": "delete_range", "column": "A", "start_value": x, "end_value": y, "inclusive": True},
+                        # {"type": "delete_where", "column": "A", "value": x, "operator": "eq"}
+                    ]
+                }
+                Function references can be used for values:
+                {"value": {"function": "MIN", "source": "dataframe", "column": "A"}}
+            keep_header: If True, preserve existing header
+            create_sheet: If True, create the sheet if it doesn't exist
+        """
+        from .utils import prepare_data
+        from .operations import process_update_config, apply_update_operations
+
+        # Initialize client and worksheet
+        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
+
+        # If sheet is empty, just do a regular update
+        current_rows = len(worksheet.col_values(1))
+        if current_rows == 0:
+            GPP.df_to_sheets(
+                df=df,
+                spreadsheet_id=spreadsheet_id,
+                sheet_name=sheet_name,
+                creds_json=creds_json,
+                keep_header=False,  # Empty sheet, so no header to keep
+                erase_whole=True,
+                create_sheet=False  # We already created if needed
+            )
+            return
+
+        # Process configuration to resolve function references
+        processed_config = process_update_config(update_config, df, worksheet)
+
+        # Apply operations and get the row where new data should start
+        start_row = apply_update_operations(processed_config, worksheet)
+
+        # Convert DataFrame to lists with proper type conversion
+        converted_data, date_columns, header = prepare_data(df, keep_header=True)
+
+        # Get current sheet properties after operations
+        current_col_count = len(worksheet.row_values(1)) if worksheet.row_values(1) else 0
+        required_cols = len(header)
+
+        # Add columns if needed
+        if required_cols > current_col_count:
+            worksheet.resize(cols=required_cols)
+
+        # Calculate required space
+        data_rows = len(converted_data)
+        required_rows = start_row - 1 + data_rows
+
+        # Add rows if needed
+        if worksheet.row_count < required_rows:
+            worksheet.add_rows(required_rows - worksheet.row_count)
+
+        # Update the data
+        end_col = chr(64 + required_cols)  # Convert column number to letter (A=65)
+        update_range = f'A{start_row}:{end_col}{required_rows}'
+        worksheet.update(update_range, converted_data, value_input_option='USER_ENTERED')
 
         # Format date columns
         GPP._format_date_columns(

@@ -6,7 +6,9 @@ A Python library that enhances Google Sheets operations with additional function
 
 - Transfer Spark DataFrames to Google Sheets with proper type conversion
 - Append data to existing sheets while maintaining structure
+- **NEW: Selectively update portions of sheets with advanced operations (delete specific rows, sort data)**
 - Intelligent handling of various data types (numbers, dates, timestamps, etc.)
+- **NEW: Dynamic value references between DataFrame and sheet data**
 - Preserve or update sheet headers
 - Selective column clearing options
 - Automatic date formatting
@@ -31,7 +33,7 @@ pip install gspreadplusplus
 ### Basic DataFrame Export
 
 ```python
-from gspreadplusplus import GPP
+from gpp import GPP
 from pyspark.sql import SparkSession
 
 # Initialize Spark and create a DataFrame
@@ -56,20 +58,9 @@ GPP.df_to_sheets(
 )
 ```
 
-### Advanced DataFrame Export Options
+### Append Data to Existing Sheet
 
 ```python
-# Export with custom options
-GPP.df_to_sheets(
-    df=df,
-    spreadsheet_id="your_spreadsheet_id",
-    sheet_name="Sheet1",
-    creds_json=creds_json,
-    keep_header=True,     # Preserve existing header row
-    erase_whole=False,    # Clear only necessary columns
-    create_sheet=True     # Create sheet if it doesn't exist
-)
-
 # Append data to existing sheet
 GPP.df_append_to_sheets(
     df=df,
@@ -79,6 +70,60 @@ GPP.df_append_to_sheets(
     keep_header=True,     # Keep existing header
     create_sheet=True     # Create sheet if it doesn't exist
 )
+```
+
+### NEW! Partially Update Sheet with Selective Operations
+
+The new `df_overlap_to_sheets` method allows you to perform selective operations on the sheet before appending new data. This is perfect for scenarios like updating time series data where you want to keep some historical data while replacing more recent records.
+
+```python
+# Define operations to perform on the sheet before appending
+update_config = {
+    "operations": [
+        # Sort the data by date column
+        {"type": "sort", "column": "date", "direction": "asc"},
+        
+        # Delete rows where date is greater than or equal to Feb 1, 2025
+        {"type": "delete_from", "column": "date", "value": "2025-02-01", "inclusive": True}
+    ]
+}
+
+# Update sheet with selective deletion and then append new data
+GPP.df_overlap_to_sheets(
+    df=df,
+    spreadsheet_id="your_spreadsheet_id",
+    sheet_name="Sheet1",
+    creds_json=creds_json,
+    update_config=update_config,
+    keep_header=True,
+    create_sheet=True
+)
+```
+
+### Using Dynamic Function References
+
+You can reference values from your DataFrame or the existing sheet data dynamically:
+
+```python
+# Delete rows with timestamps >= the minimum date in your DataFrame
+update_config = {
+    "operations": [
+        {"type": "delete_from", 
+         "column": "date", 
+         "value": {"function": "MIN", "source": "dataframe", "column": "date"},
+         "inclusive": True}
+    ]
+}
+
+# Or reference values from the sheet itself
+update_config = {
+    "operations": [
+        {"type": "delete_where", 
+         "column": "amount", 
+         "value": {"function": "MAX", "source": "sheet", "column": "amount"},
+         "operator": "eq"}
+    ]
+}
 ```
 
 ### Configuration Management
@@ -126,6 +171,50 @@ Parameters:
 - `keep_header`: If True, preserve existing header (default: False)
 - `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
 
+### NEW! df_overlap_to_sheets
+Updates sheet with selective deletion or modification based on configuration, then appends new data.
+
+Parameters:
+- `df`: Spark DataFrame containing the data to append
+- `spreadsheet_id`: The ID of the Google Spreadsheet
+- `sheet_name`: Name of the worksheet to update
+- `creds_json`: Dictionary containing Google service account credentials
+- `update_config`: Configuration dictionary with operations to perform
+- `keep_header`: If True, preserve existing header (default: True)
+- `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+
+#### Supported Operations
+
+The `update_config` dictionary supports these operations:
+
+1. **Sort**
+   ```python
+   {"type": "sort", "column": "date", "direction": "asc"}
+   ```
+
+2. **Delete From**
+   ```python
+   {"type": "delete_from", "column": "date", "value": "2025-02-01", "inclusive": True}
+   ```
+
+3. **Delete Range**
+   ```python
+   {"type": "delete_range", "column": "amount", "start_value": 100, "end_value": 500, "inclusive": True}
+   ```
+
+4. **Delete Where**
+   ```python
+   {"type": "delete_where", "column": "status", "value": "Pending", "operator": "eq"}
+   ```
+   Supported operators: "eq", "ne", "gt", "lt", "ge", "le"
+
+5. **Dynamic Function References**
+   ```python
+   {"value": {"function": "MIN", "source": "dataframe", "column": "date"}}
+   ```
+   Supported functions: "MIN", "MAX", "FIRST", "LAST", "COUNT"
+   Sources: "dataframe", "sheet"
+
 ### set_config
 Stores or updates configuration values in a designated sheet.
 
@@ -156,13 +245,48 @@ Null values are converted to:
 - 0 for numeric types
 - Empty string for other types
 
-## Error Handling
+## Advanced Example: Time Series Data Update
 
-The library implements comprehensive error handling:
-- Returns status codes for operations (0 for success, 1 for failure)
-- Prints detailed error messages for debugging
-- Gracefully handles missing keys, sheet access issues, and credential problems
-- Validates column count when appending with preserved headers
+Here's a real-world example of updating a time series dataset where you want to replace data for certain months while keeping historical data intact:
+
+```python
+from gpp import GPP
+from pyspark.sql import SparkSession
+
+# Create DataFrame with updated data for Feb-May 2025
+spark = SparkSession.builder.appName("TimeSeriesUpdate").getOrCreate()
+updated_df = spark.createDataFrame([
+    ("2025-02-01", 210, "Complete"),
+    ("2025-03-01", 325, "Complete"),
+    ("2025-04-01", 415, "Complete"),
+    ("2025-05-01", 550, "Pending")
+], ["date", "amount", "status"])
+
+# Define update configuration
+# This will:
+# 1. Sort data by date
+# 2. Delete existing records for Feb-Apr (keeping January)
+# 3. Keep May and beyond if they exist
+update_config = {
+    "operations": [
+        {"type": "sort", "column": "date", "direction": "asc"},
+        {"type": "delete_range", 
+         "column": "date", 
+         "start_value": "2025-02-01",
+         "end_value": "2025-04-30",
+         "inclusive": True}
+    ]
+}
+
+# Update the sheet
+GPP.df_overlap_to_sheets(
+    df=updated_df,
+    spreadsheet_id="your_spreadsheet_id",
+    sheet_name="MonthlySales",
+    creds_json=creds_json,
+    update_config=update_config
+)
+```
 
 ## Contributing
 

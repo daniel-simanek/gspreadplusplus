@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='gspreadplusplus',
-    version='3.1.2',
+    version='4.0.1',
     author='Daniel Simanek',
     author_email='daniel.simanek@decathlon.com',
     description='Enhanced Google Sheets operations with advanced data type handling',
