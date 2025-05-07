@@ -37,7 +37,8 @@ def convert_value(value: Any, dtype: str) -> Any:
         "decimal": lambda x: round(float(x), 2),
         "timestamp": lambda x: x.isoformat(),
         "date": lambda x: datetime.combine(x, time.min).isoformat(),
-        "boolean": lambda x: bool(x)
+        "boolean": lambda x: bool(x),
+        "daytimeinterval": lambda x: str(x)
     }
 
     if dtype not in type_handlers:

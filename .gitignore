@@ -2,3 +2,7 @@ pypi-token
 build/
 dist/
 gspreadplusplus.egg-info/
+.venv
+.venvv
+.idea
+to_server.ps1
