@@ -149,7 +149,7 @@ class GPP:
             worksheet.add_rows(required_rows - current_rows)
 
         update_range = f'A2:{chr(64 + required_cols)}{len(converted_data) + 1}' if keep_header else 'A1'
-        worksheet.update(update_range, converted_data, value_input_option='USER_ENTERED')
+        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
 
         GPP._format_date_columns(client, worksheet, date_columns, start_row, required_rows)
         worksheet.resize(rows=max(required_rows, 1))
@@ -220,11 +220,11 @@ class GPP:
         # Update the data first
         end_col = chr(64 + required_cols)
         update_range = f'A{start_row}:{end_col}{required_rows}'
-        worksheet.update(update_range, converted_data, value_input_option='USER_ENTERED')
+        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
 
         # If not keeping header, update it after appending data
         if not keep_header:
-            worksheet.update('A1', [header], value_input_option='USER_ENTERED')
+            worksheet.update([header], 'A1', value_input_option='USER_ENTERED')
 
         # Format date columns
         GPP._format_date_columns(
@@ -316,7 +316,7 @@ class GPP:
         # Update the data
         end_col = chr(64 + required_cols)  # Convert column number to letter (A=65)
         update_range = f'A{start_row}:{end_col}{required_rows}'
-        worksheet.update(update_range, converted_data, value_input_option='USER_ENTERED')
+        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
 
         # Format date columns
         GPP._format_date_columns(
@@ -355,10 +355,10 @@ class GPP:
             except ValueError:
                 # Key not found, append new row
                 row_num = len(keys) + 1
-                worksheet.update(f'A{row_num}', [[key]])
+                worksheet.update([[key]], f'A{row_num}')
 
             # Update the value in column B
-            worksheet.update(f'B{row_num}', [[value]])
+            worksheet.update([[value]], f'B{row_num}')
 
             return 0
 

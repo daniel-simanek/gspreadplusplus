@@ -6,9 +6,9 @@ A Python library that enhances Google Sheets operations with additional function
 
 - Transfer Spark DataFrames to Google Sheets with proper type conversion
 - Append data to existing sheets while maintaining structure
-- **NEW: Selectively update portions of sheets with advanced operations (delete specific rows, sort data)**
+- Selectively update portions of sheets with advanced operations (delete specific rows, sort data)
 - Intelligent handling of various data types (numbers, dates, timestamps, etc.)
-- **NEW: Dynamic value references between DataFrame and sheet data**
+- Dynamic value references between DataFrame and sheet data
 - Preserve or update sheet headers
 - Selective column clearing options
 - Automatic date formatting
@@ -72,7 +72,7 @@ GPP.df_append_to_sheets(
 )
 ```
 
-### NEW! Partially Update Sheet with Selective Operations
+### Partially Update Sheet with Selective Operations
 
 The new `df_overlap_to_sheets` method allows you to perform selective operations on the sheet before appending new data. This is perfect for scenarios like updating time series data where you want to keep some historical data while replacing more recent records.
 
@@ -171,7 +171,7 @@ Parameters:
 - `keep_header`: If True, preserve existing header (default: False)
 - `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
 
-### NEW! df_overlap_to_sheets
+### df_overlap_to_sheets
 Updates sheet with selective deletion or modification based on configuration, then appends new data.
 
 Parameters:

@@ -155,9 +155,9 @@ def apply_update_operations(config: Dict, worksheet: Any) -> int:
 
     # Update with header and filtered data - THE KEY CHANGE IS HERE:
     if data_rows:
-        worksheet.update('A1', [header] + data_rows, value_input_option='USER_ENTERED')
+        worksheet.update([header] + data_rows, 'A1', value_input_option='USER_ENTERED')
     else:
-        worksheet.update('A1', [header], value_input_option='USER_ENTERED')
+        worksheet.update([header], 'A1', value_input_option='USER_ENTERED')
 
     # Return the row where new data should start
     return len(data_rows) + 1  # +1 for header row

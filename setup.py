@@ -20,7 +20,7 @@ setup(
     url="https://github.com/daniel-simanek/gspreadplusplus",
     packages=find_packages(),
     install_requires=[
-        "gspread>=5.0.0",
+        "gspread>=6.0.0,<7.0.0",
         "google-auth>=2.0.0",
         "pyspark>=3.0.0",
         "pandas>=1.0.0"
@@ -29,14 +29,16 @@ setup(
         "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Developers",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: 3.8",
         "Programming Language :: Python :: 3.9",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
         "License :: OSI Approved :: MIT License",
         "Operating System :: OS Independent",
         "Topic :: Office/Business :: Financial :: Spreadsheet",
         "Topic :: Software Development :: Libraries :: Python Modules"
     ],
-    python_requires=">=3.7",
+    python_requires=">=3.8",
 )
