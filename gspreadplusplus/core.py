@@ -1,6 +1,8 @@
+import time as _time
 from pyspark.sql import DataFrame
 from datetime import datetime, time
 from gspread import service_account_from_dict
+from gspread.exceptions import APIError
 from typing import List, Any, Dict, Tuple
 from . import utils
 from . import functions
@@ -13,6 +15,23 @@ class GPP:
     This class provides functionality to transfer Spark DataFrames to Google Sheets
     while handling type conversions, date formatting, and sheet management.
     """
+
+    _TRANSIENT_ERRORS = frozenset({500, 503})
+    _MAX_RETRIES = 3
+    _RETRY_BASE_DELAY = 2  # seconds; actual waits: 1s, 2s, 4s
+
+    @staticmethod
+    def _with_retry(func, *args, **kwargs):
+        """Retry func on transient Google API errors (500/503) with exponential backoff."""
+        for attempt in range(GPP._MAX_RETRIES):
+            try:
+                return func(*args, **kwargs)
+            except APIError as e:
+                if e.response.status_code in GPP._TRANSIENT_ERRORS and attempt < GPP._MAX_RETRIES - 1:
+                    delay = GPP._RETRY_BASE_DELAY ** attempt
+                    _time.sleep(delay)
+                else:
+                    raise
 
     @staticmethod
     def _init_sheets_client(spreadsheet_id: str, sheet_name: str, creds_json: Dict, create_sheet: bool = True) -> Tuple[
@@ -119,7 +138,8 @@ class GPP:
             creds_json: Dict,
             keep_header: bool = False,
             erase_whole: bool = True,
-            create_sheet: bool = True
+            create_sheet: bool = True,
+            english_locale: bool = None,
     ) -> None:
         """
         Transfer data from Spark DataFrame to Google Sheets while preserving column structure.
@@ -132,27 +152,39 @@ class GPP:
             keep_header: If True, preserve the first row of the sheet
             erase_whole: If True, clear all columns and rows (maybe skipping first based on keep_header)
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
+            english_locale: Deprecated, has no effect. Will be removed in a future version.
         """
-        from .utils import prepare_data
+        import warnings
+        if english_locale is not None:
+            warnings.warn(
+                "english_locale is deprecated and has no effect. Remove it from your call.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
 
-        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
-        converted_data, date_columns, header = prepare_data(df, keep_header)
+        def _execute():
+            from .utils import prepare_data
 
-        current_rows = len(worksheet.col_values(1))
-        required_rows = len(converted_data) + (1 if keep_header else 0)
-        required_cols = len(header)
-        start_row = 2 if keep_header else 1
+            client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
+            converted_data, date_columns, header = prepare_data(df, keep_header)
 
-        GPP._clear_sheet_data(worksheet, current_rows, required_cols, start_row, erase_whole)
+            current_rows = len(worksheet.col_values(1))
+            required_rows = len(converted_data) + (1 if keep_header else 0)
+            required_cols = len(header)
+            start_row = 2 if keep_header else 1
 
-        if current_rows < required_rows:
-            worksheet.add_rows(required_rows - current_rows)
+            GPP._clear_sheet_data(worksheet, current_rows, required_cols, start_row, erase_whole)
 
-        update_range = f'A2:{chr(64 + required_cols)}{len(converted_data) + 1}' if keep_header else 'A1'
-        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
+            if current_rows < required_rows:
+                worksheet.add_rows(required_rows - current_rows)
 
-        GPP._format_date_columns(client, worksheet, date_columns, start_row, required_rows)
-        worksheet.resize(rows=max(required_rows, 1))
+            update_range = f'A2:{chr(64 + required_cols)}{len(converted_data) + 1}' if keep_header else 'A1'
+            worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
+
+            GPP._format_date_columns(client, worksheet, date_columns, start_row, required_rows)
+            worksheet.resize(rows=max(required_rows, 1))
+
+        GPP._with_retry(_execute)
 
     @staticmethod
     def df_append_to_sheets(
@@ -174,66 +206,69 @@ class GPP:
             keep_header: If True, preserve existing header. If False, use DataFrame's header
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
         """
-        from .utils import prepare_data
+        def _execute():
+            from .utils import prepare_data
 
-        # Initialize client and worksheet
-        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
+            # Initialize client and worksheet
+            client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
 
-        # Get current data
-        current_rows = len(worksheet.col_values(1))
+            # Get current data
+            current_rows = len(worksheet.col_values(1))
 
-        if current_rows == 0:
-            # Sheet is empty, treat it as a new sheet
-            GPP.df_to_sheets(
-                df=df,
-                spreadsheet_id=spreadsheet_id,
-                sheet_name=sheet_name,
-                creds_json=creds_json,
-                keep_header=False,  # We're starting fresh
-                create_sheet=False  # Sheet already exists
+            if current_rows == 0:
+                # Sheet is empty, treat it as a new sheet
+                GPP.df_to_sheets(
+                    df=df,
+                    spreadsheet_id=spreadsheet_id,
+                    sheet_name=sheet_name,
+                    creds_json=creds_json,
+                    keep_header=False,  # We're starting fresh
+                    create_sheet=False  # Sheet already exists
+                )
+                return
+
+            # Convert DataFrame to lists with proper type conversion
+            converted_data, date_columns, header = prepare_data(df, keep_header=True)
+
+            # Get current sheet properties
+            existing_header = worksheet.row_values(1)
+            current_col_count = len(existing_header) if existing_header else 0
+            required_cols = len(header)
+
+            # Add columns if needed
+            if required_cols > current_col_count:
+                worksheet.resize(cols=required_cols)
+
+            # Calculate start row for new data (always after existing data)
+            start_row = current_rows + 1
+
+            # Calculate required space
+            data_rows = len(converted_data)
+            required_rows = current_rows + data_rows
+
+            # Add rows if needed
+            if worksheet.row_count < required_rows:
+                worksheet.add_rows(required_rows - worksheet.row_count)
+
+            # Update the data first
+            end_col = chr(64 + required_cols)
+            update_range = f'A{start_row}:{end_col}{required_rows}'
+            worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
+
+            # If not keeping header, update it after appending data
+            if not keep_header:
+                worksheet.update([header], 'A1', value_input_option='USER_ENTERED')
+
+            # Format date columns
+            GPP._format_date_columns(
+                client,
+                worksheet,
+                date_columns,
+                start_row,
+                required_rows
             )
-            return
 
-        # Convert DataFrame to lists with proper type conversion
-        converted_data, date_columns, header = prepare_data(df, keep_header=True)
-
-        # Get current sheet properties
-        existing_header = worksheet.row_values(1)
-        current_col_count = len(existing_header) if existing_header else 0
-        required_cols = len(header)
-
-        # Add columns if needed
-        if required_cols > current_col_count:
-            worksheet.resize(cols=required_cols)
-
-        # Calculate start row for new data (always after existing data)
-        start_row = current_rows + 1
-
-        # Calculate required space
-        data_rows = len(converted_data)
-        required_rows = current_rows + data_rows
-
-        # Add rows if needed
-        if worksheet.row_count < required_rows:
-            worksheet.add_rows(required_rows - worksheet.row_count)
-
-        # Update the data first
-        end_col = chr(64 + required_cols)
-        update_range = f'A{start_row}:{end_col}{required_rows}'
-        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
-
-        # If not keeping header, update it after appending data
-        if not keep_header:
-            worksheet.update([header], 'A1', value_input_option='USER_ENTERED')
-
-        # Format date columns
-        GPP._format_date_columns(
-            client,
-            worksheet,
-            date_columns,
-            start_row,
-            required_rows
-        )
+        GPP._with_retry(_execute)
 
     @staticmethod
     def df_overlap_to_sheets(
@@ -268,64 +303,67 @@ class GPP:
             keep_header: If True, preserve existing header
             create_sheet: If True, create the sheet if it doesn't exist
         """
-        from .utils import prepare_data
-        from .operations import process_update_config, apply_update_operations
+        def _execute():
+            from .utils import prepare_data
+            from .operations import process_update_config, apply_update_operations
 
-        # Initialize client and worksheet
-        client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
+            # Initialize client and worksheet
+            client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
 
-        # If sheet is empty, just do a regular update
-        current_rows = len(worksheet.col_values(1))
-        if current_rows == 0:
-            GPP.df_to_sheets(
-                df=df,
-                spreadsheet_id=spreadsheet_id,
-                sheet_name=sheet_name,
-                creds_json=creds_json,
-                keep_header=False,  # Empty sheet, so no header to keep
-                erase_whole=True,
-                create_sheet=False  # We already created if needed
+            # If sheet is empty, just do a regular update
+            current_rows = len(worksheet.col_values(1))
+            if current_rows == 0:
+                GPP.df_to_sheets(
+                    df=df,
+                    spreadsheet_id=spreadsheet_id,
+                    sheet_name=sheet_name,
+                    creds_json=creds_json,
+                    keep_header=False,  # Empty sheet, so no header to keep
+                    erase_whole=True,
+                    create_sheet=False  # We already created if needed
+                )
+                return
+
+            # Process configuration to resolve function references
+            processed_config = process_update_config(update_config, df, worksheet)
+
+            # Apply operations and get the row where new data should start
+            start_row = apply_update_operations(processed_config, worksheet)
+
+            # Convert DataFrame to lists with proper type conversion
+            converted_data, date_columns, header = prepare_data(df, keep_header=True)
+
+            # Get current sheet properties after operations
+            current_col_count = len(worksheet.row_values(1)) if worksheet.row_values(1) else 0
+            required_cols = len(header)
+
+            # Add columns if needed
+            if required_cols > current_col_count:
+                worksheet.resize(cols=required_cols)
+
+            # Calculate required space
+            data_rows = len(converted_data)
+            required_rows = start_row - 1 + data_rows
+
+            # Add rows if needed
+            if worksheet.row_count < required_rows:
+                worksheet.add_rows(required_rows - worksheet.row_count)
+
+            # Update the data
+            end_col = chr(64 + required_cols)  # Convert column number to letter (A=65)
+            update_range = f'A{start_row}:{end_col}{required_rows}'
+            worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
+
+            # Format date columns
+            GPP._format_date_columns(
+                client,
+                worksheet,
+                date_columns,
+                start_row,
+                required_rows
             )
-            return
 
-        # Process configuration to resolve function references
-        processed_config = process_update_config(update_config, df, worksheet)
-
-        # Apply operations and get the row where new data should start
-        start_row = apply_update_operations(processed_config, worksheet)
-
-        # Convert DataFrame to lists with proper type conversion
-        converted_data, date_columns, header = prepare_data(df, keep_header=True)
-
-        # Get current sheet properties after operations
-        current_col_count = len(worksheet.row_values(1)) if worksheet.row_values(1) else 0
-        required_cols = len(header)
-
-        # Add columns if needed
-        if required_cols > current_col_count:
-            worksheet.resize(cols=required_cols)
-
-        # Calculate required space
-        data_rows = len(converted_data)
-        required_rows = start_row - 1 + data_rows
-
-        # Add rows if needed
-        if worksheet.row_count < required_rows:
-            worksheet.add_rows(required_rows - worksheet.row_count)
-
-        # Update the data
-        end_col = chr(64 + required_cols)  # Convert column number to letter (A=65)
-        update_range = f'A{start_row}:{end_col}{required_rows}'
-        worksheet.update(converted_data, update_range, value_input_option='USER_ENTERED')
-
-        # Format date columns
-        GPP._format_date_columns(
-            client,
-            worksheet,
-            date_columns,
-            start_row,
-            required_rows
-        )
+        GPP._with_retry(_execute)
 
     @staticmethod
     def set_config(spreadsheet_id: str, key: str, value: str, creds_json: Dict, sheet_name: str = "CONFIG") -> int:
