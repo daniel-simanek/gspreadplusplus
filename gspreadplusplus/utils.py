@@ -1,3 +1,4 @@
+import json
 from pyspark.sql import DataFrame
 from datetime import datetime, time
 from typing import List, Any, Dict, Tuple
@@ -11,10 +12,8 @@ def convert_value(value: Any, dtype: str) -> Any:
         dtype: The Spark SQL data type name (case-insensitive)
 
     Returns:
-        Converted value suitable for Google Sheets
-
-    Raises:
-        ValueError: If dtype is not supported
+        Converted value suitable for Google Sheets. Arrays/maps/structs are
+        JSON-serialized; any other unrecognised type falls back to str().
     """
     dtype = dtype.lower()
 
@@ -39,11 +38,14 @@ def convert_value(value: Any, dtype: str) -> Any:
         "timestamp_ntz": lambda x: x.isoformat(),
         "date": lambda x: datetime.combine(x, time.min).isoformat(),
         "boolean": lambda x: bool(x),
-        "daytimeinterval": lambda x: str(x)
+        "daytimeinterval": lambda x: str(x),
+        "array": lambda x: json.dumps(x, default=str),
+        "map": lambda x: json.dumps(x, default=str),
+        "struct": lambda x: json.dumps(x.asDict(), default=str),
     }
 
     if dtype not in type_handlers:
-        raise ValueError(f"Unsupported data type: {dtype}")
+        return str(value)
 
     return type_handlers[dtype](value)
 

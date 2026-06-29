@@ -29,6 +29,7 @@ class GPP:
             except APIError as e:
                 if e.response.status_code in GPP._TRANSIENT_ERRORS and attempt < GPP._MAX_RETRIES - 1:
                     delay = GPP._RETRY_BASE_DELAY ** attempt
+                    print(f"HTTP {e.response.status_code} error from Google API, retrying in {delay}s (internal attempt {attempt + 1}/{GPP._MAX_RETRIES - 1})...")
                     _time.sleep(delay)
                 else:
                     raise
@@ -140,6 +141,11 @@ class GPP:
             erase_whole: bool = True,
             create_sheet: bool = True,
             english_locale: bool = None,
+            retry_on_error: bool = False,
+            retriable_error_ids: List[int] = None,
+            retry_delay: int = 60,
+            retry_delay_modifier: float = 1,
+            max_retries: int = 2,
     ) -> None:
         """
         Transfer data from Spark DataFrame to Google Sheets while preserving column structure.
@@ -153,6 +159,11 @@ class GPP:
             erase_whole: If True, clear all columns and rows (maybe skipping first based on keep_header)
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
             english_locale: Deprecated, has no effect. Will be removed in a future version.
+            retry_on_error: If True, retry on errors matching retriable_error_ids instead of raising immediately.
+            retriable_error_ids: HTTP error codes that trigger a retry. All other codes raise immediately. Defaults to [503].
+            retry_delay: Seconds to wait before the first retry.
+            retry_delay_modifier: Multiplier applied to retry_delay after each attempt (e.g. 2 doubles the delay each time).
+            max_retries: Number of additional attempts after the initial try (max_retries=2 means 3 total attempts).
         """
         import warnings
         if english_locale is not None:
@@ -161,6 +172,9 @@ class GPP:
                 DeprecationWarning,
                 stacklevel=2,
             )
+
+        if retriable_error_ids is None:
+            retriable_error_ids = [503]
 
         def _execute():
             from .utils import prepare_data
@@ -184,7 +198,21 @@ class GPP:
             GPP._format_date_columns(client, worksheet, date_columns, start_row, required_rows)
             worksheet.resize(rows=max(required_rows, 1))
 
-        GPP._with_retry(_execute)
+        if not retry_on_error:
+            GPP._with_retry(_execute)
+        else:
+            current_delay = retry_delay
+            for attempt in range(max_retries + 1):
+                try:
+                    GPP._with_retry(_execute)
+                    break
+                except APIError as e:
+                    if e.response.status_code in retriable_error_ids and attempt < max_retries:
+                        print(f"HTTP {e.response.status_code} error, retrying in {current_delay}s (attempt {attempt + 1}/{max_retries})...")
+                        _time.sleep(current_delay)
+                        current_delay *= retry_delay_modifier
+                    else:
+                        raise
 
     @staticmethod
     def df_append_to_sheets(
