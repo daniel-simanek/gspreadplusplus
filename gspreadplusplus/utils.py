@@ -3,13 +3,15 @@ from pyspark.sql import DataFrame
 from datetime import datetime, time
 from typing import List, Any, Dict, Tuple
 
-def convert_value(value: Any, dtype: str) -> Any:
+def convert_value(value: Any, dtype: str, enable_rounding: bool = True, rounding_precision: int = 6) -> Any:
     """
     Convert Spark SQL types to appropriate Python types for Google Sheets.
 
     Args:
         value: The value to convert
         dtype: The Spark SQL data type name (case-insensitive)
+        enable_rounding: If True, round float/double/decimal values to rounding_precision decimal places
+        rounding_precision: Number of decimal places to round to when enable_rounding is True
 
     Returns:
         Converted value suitable for Google Sheets. Arrays/maps/structs are
@@ -18,10 +20,12 @@ def convert_value(value: Any, dtype: str) -> Any:
     dtype = dtype.lower()
 
     if value is None:
-        # Convert nulls to appropriate default values based on type
         return 0 if dtype in ["bigint", "long", "double", "decimal", "float"] else ""
 
-    # Map of data types to conversion functions
+    def convert_float(x):
+        v = float(x)
+        return round(v, rounding_precision) if enable_rounding else v
+
     type_handlers = {
         "string": lambda x: str(x),
         "bigint": lambda x: int(x),
@@ -31,9 +35,9 @@ def convert_value(value: Any, dtype: str) -> Any:
         "tinyint": lambda x: int(x),
         "smallint": lambda x: int(x),
         "short": lambda x: int(x),
-        "double": lambda x: round(float(x), 2),
-        "float": lambda x: round(float(x), 2),
-        "decimal": lambda x: round(float(x), 2),
+        "double": convert_float,
+        "float": convert_float,
+        "decimal": convert_float,
         "timestamp": lambda x: x.isoformat(),
         "timestamp_ntz": lambda x: x.isoformat(),
         "date": lambda x: datetime.combine(x, time.min).isoformat(),
@@ -49,13 +53,15 @@ def convert_value(value: Any, dtype: str) -> Any:
 
     return type_handlers[dtype](value)
 
-def prepare_data(df: DataFrame, keep_header: bool) -> Tuple[List[List[Any]], List[int], List[str]]:
+def prepare_data(df: DataFrame, keep_header: bool, enable_rounding: bool = True, rounding_precision: int = 6) -> Tuple[List[List[Any]], List[int], List[str]]:
     """
     Convert DataFrame to list of lists with proper type conversion.
 
     Args:
         df: Spark DataFrame to convert
         keep_header: If True, exclude header from converted data
+        enable_rounding: If True, round float/double/decimal values to rounding_precision decimal places
+        rounding_precision: Number of decimal places to round to when enable_rounding is True
 
     Returns:
         Tuple containing:
@@ -63,19 +69,17 @@ def prepare_data(df: DataFrame, keep_header: bool) -> Tuple[List[List[Any]], Lis
         - List of column indices containing dates
         - List of column headers
     """
-    # Identify date columns for formatting
     date_columns = [i for i, field in enumerate(df.schema)
                     if field.dataType.typeName().lower() == "date"]
 
     data = df.collect()
     header = df.columns
 
-    # Include header in converted data only if not keeping existing header
     converted_data = [] if keep_header else [header]
 
     for row in data:
         converted_row = [
-            convert_value(value, df.schema[i].dataType.typeName())
+            convert_value(value, df.schema[i].dataType.typeName(), enable_rounding, rounding_precision)
             for i, value in enumerate(row)
         ]
         converted_data.append(converted_row)

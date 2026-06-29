@@ -146,6 +146,8 @@ class GPP:
             retry_delay: int = 60,
             retry_delay_modifier: float = 1,
             max_retries: int = 2,
+            enable_rounding: bool = True,
+            rounding_precision: int = 6,
     ) -> None:
         """
         Transfer data from Spark DataFrame to Google Sheets while preserving column structure.
@@ -164,6 +166,8 @@ class GPP:
             retry_delay: Seconds to wait before the first retry.
             retry_delay_modifier: Multiplier applied to retry_delay after each attempt (e.g. 2 doubles the delay each time).
             max_retries: Number of additional attempts after the initial try (max_retries=2 means 3 total attempts).
+            enable_rounding: If True, round float/double/decimal values to rounding_precision decimal places. Default: True.
+            rounding_precision: Number of decimal places to round to when enable_rounding is True. Default: 6.
         """
         import warnings
         if english_locale is not None:
@@ -180,7 +184,7 @@ class GPP:
             from .utils import prepare_data
 
             client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
-            converted_data, date_columns, header = prepare_data(df, keep_header)
+            converted_data, date_columns, header = prepare_data(df, keep_header, enable_rounding, rounding_precision)
 
             current_rows = len(worksheet.col_values(1))
             required_rows = len(converted_data) + (1 if keep_header else 0)
@@ -221,7 +225,9 @@ class GPP:
             sheet_name: str,
             creds_json: Dict,
             keep_header: bool = False,
-            create_sheet: bool = True
+            create_sheet: bool = True,
+            enable_rounding: bool = True,
+            rounding_precision: int = 6,
     ) -> None:
         """
         Append data from Spark DataFrame to Google Sheets while preserving column structure.
@@ -233,30 +239,30 @@ class GPP:
             creds_json: Dictionary containing Google service account credentials
             keep_header: If True, preserve existing header. If False, use DataFrame's header
             create_sheet: If True, create the sheet if it doesn't exist. If False, raise an error
+            enable_rounding: If True, round float/double/decimal values to rounding_precision decimal places. Default: True.
+            rounding_precision: Number of decimal places to round to when enable_rounding is True. Default: 6.
         """
         def _execute():
             from .utils import prepare_data
 
-            # Initialize client and worksheet
             client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
 
-            # Get current data
             current_rows = len(worksheet.col_values(1))
 
             if current_rows == 0:
-                # Sheet is empty, treat it as a new sheet
                 GPP.df_to_sheets(
                     df=df,
                     spreadsheet_id=spreadsheet_id,
                     sheet_name=sheet_name,
                     creds_json=creds_json,
-                    keep_header=False,  # We're starting fresh
-                    create_sheet=False  # Sheet already exists
+                    keep_header=False,
+                    create_sheet=False,
+                    enable_rounding=enable_rounding,
+                    rounding_precision=rounding_precision,
                 )
                 return
 
-            # Convert DataFrame to lists with proper type conversion
-            converted_data, date_columns, header = prepare_data(df, keep_header=True)
+            converted_data, date_columns, header = prepare_data(df, keep_header=True, enable_rounding=enable_rounding, rounding_precision=rounding_precision)
 
             # Get current sheet properties
             existing_header = worksheet.row_values(1)
@@ -306,7 +312,9 @@ class GPP:
             creds_json: Dict,
             update_config: Dict,
             keep_header: bool = True,
-            create_sheet: bool = True
+            create_sheet: bool = True,
+            enable_rounding: bool = True,
+            rounding_precision: int = 6,
     ) -> None:
         """
         Update sheet with selective deletion and appending based on configuration.
@@ -330,15 +338,15 @@ class GPP:
                 {"value": {"function": "MIN", "source": "dataframe", "column": "A"}}
             keep_header: If True, preserve existing header
             create_sheet: If True, create the sheet if it doesn't exist
+            enable_rounding: If True, round float/double/decimal values to rounding_precision decimal places. Default: True.
+            rounding_precision: Number of decimal places to round to when enable_rounding is True. Default: 6.
         """
         def _execute():
             from .utils import prepare_data
             from .operations import process_update_config, apply_update_operations
 
-            # Initialize client and worksheet
             client, worksheet = GPP._init_sheets_client(spreadsheet_id, sheet_name, creds_json, create_sheet)
 
-            # If sheet is empty, just do a regular update
             current_rows = len(worksheet.col_values(1))
             if current_rows == 0:
                 GPP.df_to_sheets(
@@ -346,20 +354,19 @@ class GPP:
                     spreadsheet_id=spreadsheet_id,
                     sheet_name=sheet_name,
                     creds_json=creds_json,
-                    keep_header=False,  # Empty sheet, so no header to keep
+                    keep_header=False,
                     erase_whole=True,
-                    create_sheet=False  # We already created if needed
+                    create_sheet=False,
+                    enable_rounding=enable_rounding,
+                    rounding_precision=rounding_precision,
                 )
                 return
 
-            # Process configuration to resolve function references
             processed_config = process_update_config(update_config, df, worksheet)
 
-            # Apply operations and get the row where new data should start
             start_row = apply_update_operations(processed_config, worksheet)
 
-            # Convert DataFrame to lists with proper type conversion
-            converted_data, date_columns, header = prepare_data(df, keep_header=True)
+            converted_data, date_columns, header = prepare_data(df, keep_header=True, enable_rounding=enable_rounding, rounding_precision=rounding_precision)
 
             # Get current sheet properties after operations
             current_col_count = len(worksheet.row_values(1)) if worksheet.row_values(1) else 0

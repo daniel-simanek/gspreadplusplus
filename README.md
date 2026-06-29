@@ -58,6 +58,32 @@ GPP.df_to_sheets(
 )
 ```
 
+### Controlling Float Precision
+
+By default, float/double/decimal values are rounded to 6 decimal places. You can increase precision or disable rounding entirely:
+
+```python
+# Export with higher precision (10 decimal places)
+GPP.df_to_sheets(
+    df=df,
+    spreadsheet_id="your_spreadsheet_id",
+    sheet_name="Sheet1",
+    creds_json=creds_json,
+    rounding_precision=10
+)
+
+# Export without any rounding
+GPP.df_to_sheets(
+    df=df,
+    spreadsheet_id="your_spreadsheet_id",
+    sheet_name="Sheet1",
+    creds_json=creds_json,
+    enable_rounding=False
+)
+```
+
+The same parameters are available on `df_append_to_sheets` and `df_overlap_to_sheets`.
+
 ### Append Data to Existing Sheet
 
 ```python
@@ -159,6 +185,13 @@ Parameters:
 - `keep_header`: If True, preserve the first row of the sheet (default: False)
 - `erase_whole`: If True, clear all columns and rows (default: True)
 - `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+- `retry_on_error`: If True, retry on errors matching `retriable_error_ids` (default: False)
+- `retriable_error_ids`: HTTP error codes that trigger a retry (default: [503])
+- `retry_delay`: Seconds to wait before the first retry (default: 60)
+- `retry_delay_modifier`: Multiplier applied to `retry_delay` after each attempt (default: 1)
+- `max_retries`: Number of additional attempts after the initial try (default: 2)
+- `enable_rounding`: If True, round float/double/decimal values (default: True)
+- `rounding_precision`: Decimal places to round to when `enable_rounding` is True (default: 6)
 
 ### df_append_to_sheets
 Appends data from a Spark DataFrame to an existing Google Sheet.
@@ -170,6 +203,8 @@ Parameters:
 - `creds_json`: Dictionary containing Google service account credentials
 - `keep_header`: If True, preserve existing header (default: False)
 - `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+- `enable_rounding`: If True, round float/double/decimal values (default: True)
+- `rounding_precision`: Decimal places to round to when `enable_rounding` is True (default: 6)
 
 ### df_overlap_to_sheets
 Updates sheet with selective deletion or modification based on configuration, then appends new data.
@@ -182,6 +217,8 @@ Parameters:
 - `update_config`: Configuration dictionary with operations to perform
 - `keep_header`: If True, preserve existing header (default: True)
 - `create_sheet`: If True, create the sheet if it doesn't exist (default: True)
+- `enable_rounding`: If True, round float/double/decimal values (default: True)
+- `rounding_precision`: Decimal places to round to when `enable_rounding` is True (default: 6)
 
 #### Supported Operations
 
@@ -234,15 +271,17 @@ Returns:
 The library automatically handles conversion of various data types:
 
 - Strings
-- Integers (regular, long, bigint)
-- Floating point numbers (double, float)
-- Decimals
-- Dates
-- Timestamps
+- Integers (int, integer, tinyint, smallint, short, long, bigint)
+- Floating point numbers (double, float) — rounded to 6 decimal places by default
+- Decimals — rounded to 6 decimal places by default
+- Dates — formatted as `yyyy-mm-dd`
+- Timestamps — converted to ISO 8601 format
 - Booleans
+- Arrays, Maps, Structs — JSON-serialized
+- Any other unrecognised type — converted to string
 
 Null values are converted to:
-- 0 for numeric types
+- 0 for numeric types (int, long, double, decimal, float)
 - Empty string for other types
 
 ## Advanced Example: Time Series Data Update
